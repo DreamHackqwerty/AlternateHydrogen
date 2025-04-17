@@ -1,0 +1,96 @@
+#!/bin/bash
+
+set -e
+
+# === CONFIGURABLE VARIABLES ===
+HYDROGEN_M_URL="https://0ai4bbbahf.ufs.sh/f/4fzhZqSSYIjmETmvkvGYcx0fSrnXPJL1ORbt9yd7hIMBq3pC"
+TMP_DIR="/tmp/hydrogen_m_install"
+HYDROGEN_APP_PATH="/Applications/Hydrogen-M.app"
+ROBLOX_PATH="/Applications/Roblox.app/Contents/MacOS"
+ROBLOX_PLAYER="$ROBLOX_PATH/RobloxPlayer"
+ROBLOX_PLAYER_COPY="$ROBLOX_PATH/RobloxPlayer.copy"
+RBX_PATH="/Applications/Roblox.app"
+DOWNLOAD_URL="https://drive.usercontent.google.com/download?id=1WqKe5rYmZx1kyHHFJQVnwwgkYL3-d3mV&export=download&authuser=0&confirm=t&uuid=f5e6f62a-f3a5-4d78-9bc0-ad88e9b57d20&at=APcmpozyGv2PDKaRScDwGAoC4V6Q%3A1744911062070"
+
+mkdir -p "$TMP_DIR"
+
+# === FUNCTIONS ===
+
+error_exit() {
+    echo "Error: $1"
+    exit 1
+}
+
+info() {
+    echo "[*] $1"
+}
+
+success() {
+    echo "[✔] $1"
+}
+
+# === CHECKS ===
+
+# 1. Remove existing Roblox if it exists
+if [ -f "$ROBLOX_PLAYER" ]; then
+    info "Deleting existing Roblox..."
+    sudo rm -rf "$RBX_PATH"
+fi
+
+# 2. Download Roblox ZIP
+info "Downloading Roblox archive..."
+curl -L "$DOWNLOAD_URL" -o "$TMP_DIR/CurrentRoblox.zip"
+
+info "Unzipping Roblox..."
+unzip -oq "$TMP_DIR/CurrentRoblox.zip" -d "$TMP_DIR"
+
+# 3. Locate RobloxPlayer.app in extracted directory
+FOUND_APP=$(find "$TMP_DIR" -name "RobloxPlayer.app" -type d | head -n 1)
+if [ ! -d "$FOUND_APP" ]; then
+    error_exit "RobloxPlayer.app not found in the zip archive."
+fi
+
+info "Moving RobloxPlayer.app to /Applications/Roblox.app..."
+mv "$FOUND_APP" "$RBX_PATH"
+
+# 4. Architecture Checks
+SYSTEM_ARCH=$(uname -m)
+BINARY_ARCH=$(file "$ROBLOX_PLAYER" | grep -o 'arm64' || true)
+
+if [ "$SYSTEM_ARCH" != "arm64" ]; then
+    error_exit "Hydrogen-M does not support Intel Macs. This system is $SYSTEM_ARCH."
+fi
+
+if [ "$BINARY_ARCH" != "arm64" ]; then
+    error_exit "RobloxPlayer is not an arm64 binary. Hydrogen-M requires arm64 builds."
+fi
+
+info "System and RobloxPlayer architecture are compatible (arm64)."
+
+# 5. Download and install Hydrogen-M
+info "Downloading Hydrogen-M from $HYDROGEN_M_URL..."
+curl -L "$HYDROGEN_M_URL" -o "$TMP_DIR/Hydrogen-M.zip"
+
+info "Unzipping Hydrogen-M..."
+unzip -oq "$TMP_DIR/Hydrogen-M.zip" -d "$TMP_DIR"
+
+info "Installing Hydrogen-M..."
+sudo rm -rf "$HYDROGEN_APP_PATH"
+mv "$TMP_DIR/Hydrogen-M.app" "$HYDROGEN_APP_PATH"
+
+# 6. Copy and inject
+info "Copying RobloxPlayer to RobloxPlayer.copy..."
+cp "$ROBLOX_PLAYER" "$ROBLOX_PLAYER_COPY"
+
+info "Injecting Hydrogen-M dylib..."
+"$HYDROGEN_APP_PATH/Contents/MacOS/insert_dylib" \
+    "$HYDROGEN_APP_PATH/Contents/MacOS/hydrogen-m.dylib" \
+    "$ROBLOX_PLAYER_COPY" "$ROBLOX_PLAYER" --strip-codesig --all-yes
+
+# 7. Codesign
+info "Codesigning Roblox..."
+sudo codesign --force --deep --sign - "$RBX_PATH"
+
+# 8. Done
+success "Hydrogen-M installed successfully!"
+echo "🎉 Enjoy the experience!"

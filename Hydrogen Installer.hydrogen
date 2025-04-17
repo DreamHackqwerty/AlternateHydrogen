@@ -31,19 +31,29 @@ success() {
 
 # === CHECKS ===
 
-# 1. Check for existence of RobloxPlayer
+# 1. Remove existing Roblox if it exists
 if [ -f "$ROBLOX_PLAYER" ]; then
     info "Deleting existing Roblox..."
     sudo rm -rf "$RBX_PATH"
 fi
 
+# 2. Download Roblox ZIP
+info "Downloading Roblox archive..."
 curl -L "$DOWNLOAD_URL" -o "$TMP_DIR/CurrentRoblox.zip"
+
+info "Unzipping Roblox..."
 unzip -oq "$TMP_DIR/CurrentRoblox.zip" -d "$TMP_DIR"
 
-info "Moving Roblox to /Applications..."
-mv "$TMP_DIR/RobloxPlayer.app" "$RBX_PATH"
+# 3. Locate RobloxPlayer.app in extracted directory
+FOUND_APP=$(find "$TMP_DIR" -name "RobloxPlayer.app" -type d | head -n 1)
+if [ ! -d "$FOUND_APP" ]; then
+    error_exit "RobloxPlayer.app not found in the zip archive."
+fi
 
-# 2. Check architecture
+info "Moving RobloxPlayer.app to /Applications/Roblox.app..."
+mv "$FOUND_APP" "$RBX_PATH"
+
+# 4. Architecture Checks
 SYSTEM_ARCH=$(uname -m)
 BINARY_ARCH=$(file "$ROBLOX_PLAYER" | grep -o 'arm64' || true)
 
@@ -57,29 +67,30 @@ fi
 
 info "System and RobloxPlayer architecture are compatible (arm64)."
 
-# 3. Download Hydrogen-M app
+# 5. Download and install Hydrogen-M
 info "Downloading Hydrogen-M from $HYDROGEN_M_URL..."
 curl -L "$HYDROGEN_M_URL" -o "$TMP_DIR/Hydrogen-M.zip"
+
+info "Unzipping Hydrogen-M..."
 unzip -oq "$TMP_DIR/Hydrogen-M.zip" -d "$TMP_DIR"
 
-info "Moving Hydrogen-M to /Applications..."
+info "Installing Hydrogen-M..."
 sudo rm -rf "$HYDROGEN_APP_PATH"
 mv "$TMP_DIR/Hydrogen-M.app" "$HYDROGEN_APP_PATH"
 
-# 4. Copy RobloxPlayer
-info "Copying RobloxPlayer to /Applications/Roblox.app/Contents/MacOS/RobloxPlayer.copy..."
+# 6. Copy and inject
+info "Copying RobloxPlayer to RobloxPlayer.copy..."
 cp "$ROBLOX_PLAYER" "$ROBLOX_PLAYER_COPY"
 
-# 5. Inject dylib
-info "Injecting Hydrogen-M dylib into RobloxPlayer..."
+info "Injecting Hydrogen-M dylib..."
 "$HYDROGEN_APP_PATH/Contents/MacOS/insert_dylib" \
     "$HYDROGEN_APP_PATH/Contents/MacOS/hydrogen-m.dylib" \
     "$ROBLOX_PLAYER_COPY" "$ROBLOX_PLAYER" --strip-codesig --all-yes
 
-# 6. Resign Roblox app
-info "Codesigning Roblox. Enter your password below (you won't be able to see it) to allow codesigning. Hydrogen will not work without this."
-sudo codesign --force --deep --sign - "/Applications/Roblox.app"
+# 7. Codesign
+info "Codesigning Roblox..."
+sudo codesign --force --deep --sign - "$RBX_PATH"
 
-# 7. Finish
+# 8. Done
 success "Hydrogen-M installed successfully!"
-echo "Enjoy the experience! Please provide feedback to help us improve."
+echo "🎉 Enjoy the experience!"
